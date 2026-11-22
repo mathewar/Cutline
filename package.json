@@ -1,0 +1,14 @@
+{
+  "name": "cutline",
+  "private": true,
+  "version": "1.2.0",
+  "description": "Browser-only video cutter and captioner. Static site; no server code.",
+  "type": "module",
+  "scripts": {
+    "build": "node build.mjs"
+  },
+  "devDependencies": {
+    "hls.js": "1.7.4",
+    "mediabunny": "1.66.2"
+  }
+}

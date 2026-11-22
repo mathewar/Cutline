@@ -1,0 +1,214 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Cutline — in-browser video cutter &amp; captioner</title>
+  <meta name="description" content="Cut long videos down to a 2-minute MP4 with burned-in captions. Runs entirely in your browser; nothing is uploaded.">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%23ff5a36'/%3E%3Cpath d='M9 10h14M9 16h9M9 22h14' stroke='%23fff' stroke-width='3' stroke-linecap='round'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="css/app.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand"><span class="logo"></span>Cutline</div>
+    <div class="open">
+      <label class="btn" title="Open a video file (or drop one anywhere)">
+        <input type="file" id="fileInput" accept="video/*,.mkv,.ts,.m3u8" hidden>
+        Open file
+      </label>
+      <form id="urlForm" class="urlform">
+        <input id="urlInput" type="url" placeholder="…or paste a video / .m3u8 stream link" autocomplete="off" spellcheck="false">
+        <button class="btn ghost" type="submit">Load</button>
+      </form>
+    </div>
+    <div id="srcInfo" class="srcinfo"></div>
+    <div class="spacer"></div>
+    <div class="meter" id="meter" title="Length of the exported video (max 2:00)">
+      <div class="meter-bar"><div id="meterFill"></div></div>
+      <span id="meterText">0:00 / 2:00</span>
+    </div>
+    <select id="resSelect" title="Export resolution (short side)">
+      <option value="1080">1080p</option>
+      <option value="720">720p</option>
+      <option value="480">480p</option>
+    </select>
+    <button class="btn primary" id="exportBtn" disabled>Export MP4</button>
+  </header>
+
+  <main class="workspace">
+    <section class="stage">
+      <div class="viewer" id="viewer">
+        <canvas id="preview"></canvas>
+        <div class="empty" id="emptyState">
+          <div class="drop">
+            <h1>Drop a video here</h1>
+            <p>MP4, MOV, WebM, MKV — any size. Or paste a direct video / HLS link above.</p>
+            <p class="muted">Everything runs in this tab. Your video never leaves your computer.</p>
+          </div>
+        </div>
+        <div class="badge" id="modeBadge">EDIT PREVIEW</div>
+        <div class="busy" id="busy" hidden><div class="spinner"></div><span id="busyText">Opening…</span></div>
+      </div>
+      <video id="video" playsinline></video>
+
+      <div class="transport">
+        <button class="icon" id="playBtn" title="Play / pause (Space)">▶</button>
+        <div class="times">
+          <span id="tSrc">0:00.0</span>
+          <span class="muted">source</span>
+          <span class="sep">·</span>
+          <span id="tOut">—</span>
+          <span class="muted">output</span>
+        </div>
+        <div class="seg-toggle" role="group">
+          <button id="modeEdit" class="on" title="Play only the kept segments (Tab)">Edit</button>
+          <button id="modeSource" title="Play the full source (Tab)">Source</button>
+        </div>
+        <form class="capentry" id="capForm" autocomplete="off">
+          <input id="capInput" placeholder="Type a caption — Enter drops it at the playhead  ( / to focus )" maxlength="240" spellcheck="true">
+          <label class="chk" title="Pause while you type, resume when you press Enter"><input type="checkbox" id="pauseTyping" checked> pause while typing</label>
+        </form>
+      </div>
+    </section>
+
+    <aside class="panel">
+      <nav class="tabs">
+        <button data-tab="captions" class="on">Captions</button>
+        <button data-tab="style">Style</button>
+        <button data-tab="keys">Keys</button>
+      </nav>
+
+      <div class="tab" id="tab-captions">
+        <div class="cap-list" id="capList"><p class="muted pad">No captions yet. Type in the box under the video, or paste a script below.</p></div>
+        <details class="script" id="scriptBox">
+          <summary>Script mode — paste a whole narrative</summary>
+          <textarea id="scriptText" rows="7" placeholder="One caption per line.&#10;Use | inside a line to force a line break.&#10;&#10;Timings are worked out from text length and spread across the edited video."></textarea>
+          <div class="row">
+            <button class="btn" id="scriptLayout" title="Replace all captions, spread evenly across the output">Lay out across video</button>
+            <button class="btn ghost" id="scriptAppend" title="Add after the last caption at natural reading speed">Append after last</button>
+          </div>
+          <p class="muted small" id="scriptNote"></p>
+        </details>
+        <div class="row end"><button class="btn ghost danger small" id="capClear">Clear all captions</button></div>
+      </div>
+
+      <div class="tab" id="tab-style" hidden>
+        <div class="presets" id="presets">
+          <button data-preset="clean">Clean</button>
+          <button data-preset="outline">Bold outline</button>
+          <button data-preset="raised">Raised</button>
+          <button data-preset="boxed">Boxed</button>
+          <button data-preset="band">Band</button>
+        </div>
+        <div class="form" id="styleForm">
+          <label>Font<select data-k="font" id="fontSelect"></select></label>
+          <label>Size <output data-o="size"></output><input type="range" data-k="size" min="2" max="14" step="0.25"></label>
+          <label>Weight<select data-k="weight"><option value="400">Regular</option><option value="600">Semibold</option><option value="800">Bold</option><option value="900">Black</option></select></label>
+          <label class="chk"><input type="checkbox" data-k="uppercase"> UPPERCASE</label>
+          <hr>
+          <div class="colorrow">
+            <span class="lbl-sm">Text colour</span>
+            <div class="swatches" id="swatches">
+              <button type="button" data-color="auto" class="auto" title="Auto: white or black, picked from the picture behind each caption">Auto</button>
+              <button type="button" data-color="#ffffff" style="--c:#ffffff" title="White"></button>
+              <button type="button" data-color="#ffd60a" style="--c:#ffd60a" title="Yellow"></button>
+              <button type="button" data-color="#111111" style="--c:#111111" title="Black"></button>
+              <button type="button" data-color="#4cc9f0" style="--c:#4cc9f0" title="Cyan"></button>
+              <button type="button" data-color="#3ddc84" style="--c:#3ddc84" title="Green"></button>
+              <button type="button" data-color="#ff5a36" style="--c:#ff5a36" title="Orange"></button>
+              <button type="button" data-color="#ff4d9d" style="--c:#ff4d9d" title="Pink"></button>
+              <label class="custom" title="Any colour"><input type="color" data-k="color" id="textColor"></label>
+            </div>
+          </div>
+          <div class="pair" data-when="!autoContrast">
+            <label class="chk"><input type="checkbox" data-k="edgeAuto"> Auto outline / box colour</label>
+            <label data-when="!edgeAuto">Outline / box<input type="color" data-k="strokeColor"></label>
+          </div>
+          <label>Outline <output data-o="stroke"></output><input type="range" data-k="stroke" min="0" max="40" step="1"></label>
+          <label>Shadow<select data-k="shadow"><option value="none">None</option><option value="soft">Soft</option><option value="hard">Hard offset</option></select></label>
+          <label class="chk"><input type="checkbox" data-k="raised"> Raised lettering (offset extrusion)</label>
+          <div class="pair" data-when="raised">
+            <label>Depth <output data-o="raisedDepth"></output><input type="range" data-k="raisedDepth" min="1" max="20" step="0.5"></label>
+            <label>Angle <output data-o="raisedAngle"></output><input type="range" data-k="raisedAngle" min="0" max="359" step="5"></label>
+          </div>
+          <label>Background<select data-k="box"><option value="none">None</option><option value="box">Box per line</option><option value="band">Full-width band</option></select></label>
+          <label data-when="box">Background opacity <output data-o="boxOpacity"></output><input type="range" data-k="boxOpacity" min="10" max="100" step="1"></label>
+          <hr>
+          <label>Position<select data-k="position"><option value="bottom">Bottom</option><option value="middle">Middle</option><option value="top">Top</option></select></label>
+          <label>Edge offset <output data-o="margin"></output><input type="range" data-k="margin" min="0" max="40" step="0.5"></label>
+          <label>Max width <output data-o="maxWidth"></output><input type="range" data-k="maxWidth" min="30" max="100" step="1"></label>
+          <label>Align<select data-k="align"><option value="center">Centre</option><option value="left">Left</option></select></label>
+          <label class="chk"><input type="checkbox" data-k="fade"> Fade in / out</label>
+        </div>
+        <p class="muted small">Your style is saved in a cookie on this device and used next time.</p>
+        <button class="btn ghost small" id="styleReset">Reset to default</button>
+      </div>
+
+      <div class="tab" id="tab-keys" hidden>
+        <table class="keys">
+          <tr><th colspan="2">Playback</th></tr>
+          <tr><td><kbd>Space</kbd></td><td>Play / pause</td></tr>
+          <tr><td><kbd>←</kbd> <kbd>→</kbd></td><td>Step one frame</td></tr>
+          <tr><td><kbd>Shift</kbd>+<kbd>←</kbd> <kbd>→</kbd></td><td>Jump 1 s (<kbd>Alt</kbd>: 10 s)</td></tr>
+          <tr><td><kbd>[</kbd> <kbd>]</kbd></td><td>Previous / next marker (scene shift)</td></tr>
+          <tr><td><kbd>Tab</kbd></td><td>Toggle Edit ⇄ Source preview</td></tr>
+          <tr><th colspan="2">Selecting segments</th></tr>
+          <tr><td><kbd>Enter</kbd> / <kbd>S</kbd></td><td>Keep / un-keep the segment under the playhead</td></tr>
+          <tr><td><kbd>X</kbd></td><td>Drop the segment under the playhead</td></tr>
+          <tr><td><kbd>M</kbd></td><td>Add a marker (key frame) at the playhead</td></tr>
+          <tr><td><kbd>Backspace</kbd></td><td>Remove the nearest marker</td></tr>
+          <tr><td><kbd>I</kbd> then <kbd>O</kbd></td><td>Keep everything from in-point to out-point</td></tr>
+          <tr><td>Drag on green lane</td><td>Paint keep (<kbd>Shift</kbd>-drag: erase)</td></tr>
+          <tr><td>Wheel / pinch on timeline</td><td>Zoom; <kbd>Shift</kbd>+wheel pans</td></tr>
+          <tr><th colspan="2">Captions</th></tr>
+          <tr><td><kbd>/</kbd> or <kbd>T</kbd></td><td>Focus caption box</td></tr>
+          <tr><td><kbd>Enter</kbd> (in box)</td><td>Place at the moment you started typing</td></tr>
+          <tr><td><kbd>Shift</kbd>+<kbd>Enter</kbd></td><td>Place right after the previous caption</td></tr>
+          <tr><td><kbd>Esc</kbd></td><td>Leave caption box</td></tr>
+          <tr><td>Drag caption block</td><td>Move; drag its edges to retime</td></tr>
+          <tr><th colspan="2">General</th></tr>
+          <tr><td><kbd>Ctrl/⌘</kbd>+<kbd>Z</kbd></td><td>Undo (<kbd>Shift</kbd> to redo)</td></tr>
+          <tr><td><kbd>Ctrl/⌘</kbd>+<kbd>E</kbd></td><td>Export</td></tr>
+        </table>
+      </div>
+    </aside>
+  </main>
+
+  <section class="timelines">
+    <div class="tl-bar">
+      <span class="lbl">Source</span>
+      <span id="anaStatus" class="muted small"></span>
+      <label class="sens" title="How eagerly scene shifts are auto-marked">Auto-mark
+        <input type="range" id="sens" min="0" max="1" step="0.01" value="0.5">
+      </label>
+      <button class="btn ghost small" id="keepAll" title="Keep every segment">Keep all</button>
+      <button class="btn ghost small" id="keepNone" title="Drop every segment">Clear</button>
+      <span class="spacer"></span>
+      <span class="muted small" id="hoverInfo"></span>
+      <button class="btn ghost small" id="zoomOut" title="Zoom out">−</button>
+      <button class="btn ghost small" id="zoomFit" title="Fit whole video">Fit</button>
+      <button class="btn ghost small" id="zoomIn" title="Zoom in">+</button>
+    </div>
+    <canvas id="srcTl" class="tl"></canvas>
+    <div class="tl-bar">
+      <span class="lbl">Output</span>
+      <span class="muted small">kept clips, in order · captions below — drag to move, drag edges to retime</span>
+    </div>
+    <canvas id="outTl" class="tl"></canvas>
+  </section>
+
+  <dialog id="exportDlg">
+    <h2 id="expTitle">Exporting…</h2>
+    <div class="progress"><div id="expBar"></div></div>
+    <p id="expInfo" class="muted small"></p>
+    <video id="expVideo" controls hidden></video>
+    <div class="row end">
+      <a class="btn primary" id="expDownload" hidden>Download MP4</a>
+      <button class="btn ghost" id="expCancel">Cancel</button>
+    </div>
+  </dialog>
+
+  <div class="toasts" id="toasts"></div>
+  <script type="module" src="js/main.js"></script>
+</body>
+</html>
